@@ -12,14 +12,18 @@ const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 // Create bot instance
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-// Store user preferences
+// Store user preferences and logs
 const userPreferences = new Map();
+const chatLogs = new Map(); // To store chat logs for admin
+
+// Admin Chat ID
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 
 // Keep-alive mechanism
 setInterval(() => {
   console.log('🟢 Sending keep-alive request to avoid inactivity...');
-  bot.getUpdates(); // Ensures bot stays active
-}, 30000); // Every 30 seconds
+  bot.getUpdates();
+}, 30000);
 
 // Helper function to create keyboard markup
 function createMainMenu() {
@@ -85,6 +89,26 @@ bot.onText(/\/start/, (msg) => {
   );
 });
 
+// Admin-specific command to fetch logs
+bot.onText(/\/admin_logs/, (msg) => {
+  const chatId = msg.chat.id;
+
+  if (chatId.toString() !== ADMIN_CHAT_ID) {
+    bot.sendMessage(chatId, 'Unauthorized access. This command is for admin only.');
+    return;
+  }
+
+  let logMessage = '📜 *User Chat Logs:*\n\n';
+  chatLogs.forEach((logs, userId) => {
+    logMessage += `👤 *User ID*: ${userId}\n`;
+    logs.forEach((log) => {
+      logMessage += `📅 [${log.timestamp}]\nRole: ${log.role}\nMessage: ${log.message}\n\n`;
+    });
+  });
+
+  bot.sendMessage(chatId, logMessage || 'No logs available.', { parse_mode: 'Markdown' });
+});
+
 // Handle button clicks
 bot.on('callback_query', async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
@@ -110,6 +134,15 @@ bot.on('callback_query', async (callbackQuery) => {
     bot.answerCallbackQuery(callbackQuery.id, `Role set to ${roles[role].name}`);
   }
 });
+
+// Log user messages
+function logMessage(chatId, role, message) {
+  const timestamp = new Date().toISOString();
+  if (!chatLogs.has(chatId)) {
+    chatLogs.set(chatId, []);
+  }
+  chatLogs.get(chatId).push({ timestamp, role, message });
+}
 
 // Handle menu selections
 bot.on('message', async (msg) => {
@@ -182,6 +215,7 @@ bot.on('message', async (msg) => {
         }
 
         bot.sendMessage(chatId, response);
+        logMessage(chatId, roles[userPrefs.role].name, text); // Log message for admin
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
