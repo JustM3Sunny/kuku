@@ -12,58 +12,19 @@ const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 // Create bot instance
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-// Store user preferences and logs
+// Store user preferences
 const userPreferences = new Map();
-const chatLogs = new Map(); // To store chat logs for admin
 
 // Admin Chat ID
 const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
 
-// Keep-alive mechanism
-setInterval(() => {
-  console.log('🟢 Sending keep-alive request to avoid inactivity...');
-  bot.getUpdates();
-}, 30000);
-
-// Helper function to create keyboard markup
-function createMainMenu() {
-  return {
-    reply_markup: {
-      keyboard: [
-        ['🤖 Select Model', '👤 Select Role'],
-        ['ℹ️ Help', '📞 Contact']
-      ],
-      resize_keyboard: true
-    }
-  };
-}
-
-function createModelSelection(selectedModelType) {
-  const modelOptions = models[selectedModelType].models.map((modelName) => ({
-    text: modelName,
-    callback_data: `model:${selectedModelType}:${modelName}`
-  }));
-
-  return {
-    reply_markup: {
-      inline_keyboard: [modelOptions]
-    }
-  };
-}
-
-function createRoleSelection() {
-  const keyboard = Object.entries(roles).map(([key, role]) => [
-    {
-      text: role.name,
-      callback_data: `role:${key}`
-    }
-  ]);
-
-  return {
-    reply_markup: {
-      inline_keyboard: keyboard
-    }
-  };
+// Helper function to log and send message to admin
+function logAndSendToAdmin(chatId, role, message) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `👤 *User ID*: ${chatId}\n📅 *Time*: ${timestamp}\n🎭 *Role*: ${role}\n💬 *Message*: ${message}\n\n`;
+  
+  // Send log message to admin
+  bot.sendMessage(ADMIN_CHAT_ID, logMessage, { parse_mode: 'Markdown' });
 }
 
 // Command handlers
@@ -85,71 +46,32 @@ bot.onText(/\/start/, (msg) => {
       '- Choose interaction role\n' +
       '- Get help\n' +
       '- Contact developer',
-    createMainMenu()
+    {
+      reply_markup: {
+        keyboard: [
+          ['🤖 Select Model', '👤 Select Role'],
+          ['ℹ️ Help', '📞 Contact']
+        ],
+        resize_keyboard: true
+      }
+    }
   );
 });
 
-// Admin-specific command to fetch logs
-bot.onText(/\/admin_logs/, (msg) => {
-  const chatId = msg.chat.id;
-
-  if (chatId.toString() !== ADMIN_CHAT_ID) {
-    bot.sendMessage(chatId, 'Unauthorized access. This command is for admin only.');
-    return;
-  }
-
-  let logMessage = '📜 *User Chat Logs:*\n\n';
-  chatLogs.forEach((logs, userId) => {
-    logMessage += `👤 *User ID*: ${userId}\n`;
-    logs.forEach((log) => {
-      logMessage += `📅 [${log.timestamp}]\nRole: ${log.role}\nMessage: ${log.message}\n\n`;
-    });
-  });
-
-  bot.sendMessage(chatId, logMessage || 'No logs available.', { parse_mode: 'Markdown' });
-});
-
-// Handle button clicks
-bot.on('callback_query', async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const data = callbackQuery.data;
-  const userPrefs = userPreferences.get(chatId) || {};
-
-  if (data.startsWith('model:')) {
-    const [_, modelType, modelName] = data.split(':');
-    userPrefs.model = modelType;
-    userPrefs.selectedModel = modelName;
-    userPreferences.set(chatId, userPrefs);
-    bot.answerCallbackQuery(callbackQuery.id, `Model set to ${modelName}`);
-
-    if (modelType === 'groq') {
-      await groqService.setModel(modelName);
-    } else if (modelType === 'gemini') {
-      await geminiService.setModel(modelName);
-    }
-  } else if (data.startsWith('role:')) {
-    const role = data.split(':')[1];
-    userPrefs.role = role;
-    userPreferences.set(chatId, userPrefs);
-    bot.answerCallbackQuery(callbackQuery.id, `Role set to ${roles[role].name}`);
-  }
-});
-
-// Log user messages
-function logMessage(chatId, role, message) {
-  const timestamp = new Date().toISOString();
-  if (!chatLogs.has(chatId)) {
-    chatLogs.set(chatId, []);
-  }
-  chatLogs.get(chatId).push({ timestamp, role, message });
-}
-
-// Handle menu selections
+// Handle all user messages and send logs to admin
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (!text) return;
+
+  const userPrefs = userPreferences.get(chatId) || {
+    model: 'groq',
+    role: 'bestfriend'
+  };
+
+  // Log and send message details to admin
+  logAndSendToAdmin(chatId, roles[userPrefs.role]?.name || 'Unknown Role', text);
 
   switch (text) {
     case '🤖 Select Model':
@@ -166,7 +88,16 @@ bot.on('message', async (msg) => {
       break;
 
     case '👤 Select Role':
-      bot.sendMessage(chatId, 'Choose a role:', createRoleSelection());
+      bot.sendMessage(chatId, 'Choose a role:', {
+        reply_markup: {
+          inline_keyboard: Object.entries(roles).map(([key, role]) => [
+            {
+              text: role.name,
+              callback_data: `role:${key}`
+            }
+          ])
+        }
+      });
       break;
 
     case 'ℹ️ Help':
@@ -190,12 +121,7 @@ bot.on('message', async (msg) => {
       break;
 
     default:
-      const userPrefs = userPreferences.get(chatId);
-      if (!userPrefs) {
-        bot.sendMessage(chatId, 'Please start the bot first using /start');
-        return;
-      }
-
+      // AI response generation (optional)
       if (!userPrefs.selectedModel) {
         bot.sendMessage(chatId, 'Please select a model first.');
         return;
@@ -203,8 +129,8 @@ bot.on('message', async (msg) => {
 
       try {
         bot.sendMessage(chatId, '🤔 Thinking...');
-
         let response;
+
         if (userPrefs.model === 'groq') {
           response = await groqService.generateResponse(text, roles[userPrefs.role]);
         } else if (userPrefs.model === 'gemini') {
@@ -215,24 +141,9 @@ bot.on('message', async (msg) => {
         }
 
         bot.sendMessage(chatId, response);
-        logMessage(chatId, roles[userPrefs.role].name, text); // Log message for admin
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
       }
   }
 });
-
-bot.on('callback_query', async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const data = callbackQuery.data;
-
-  if (data.startsWith('selectModelType:')) {
-    const modelType = data.split(':')[1];
-    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
-    bot.answerCallbackQuery(callbackQuery.id);
-  }
-});
-
-// Start the bot
-console.log('Bot is running...');
