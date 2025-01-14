@@ -4,15 +4,10 @@ const GroqService = require('./services/groqService');
 const GeminiService = require('./services/geminiService');
 const roles = require('./config/roles');
 const models = require('./config/models');
-const fs = require('fs'); // For file handling
-const speech = require('@google-cloud/speech'); // For voice-to-text
-const translate = require('@google-cloud/translate').v2.Translate;
 
 // Initialize services
 const groqService = new GroqService(process.env.GROQ_API_KEY);
 const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
-const translateClient = new translate({ key: process.env.GOOGLE_TRANSLATE_API_KEY });
-const speechClient = new speech.SpeechClient();
 
 // Create bot instance
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
