@@ -8,11 +8,14 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.2.0",
-    "advanced-telegram-ai-bot": "file:",
     "axios": "^1.6.7",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
-    "node-telegram-bot-api": "^0.64.0"
+    "node-telegram-bot-api": "^0.64.0",
+    "googleapis": "^105.0.0",  // Google API client (for translation and speech)
+    "google-cloud/speech": "^4.6.0", // Google Speech-to-Text API
+    "google-cloud/translate": "^6.1.1", // Google Translate API
+    "fs-extra": "^11.1.0" // For enhanced file operations
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
