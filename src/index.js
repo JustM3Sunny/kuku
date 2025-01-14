@@ -33,6 +33,7 @@ function createModelSelection(selectedModelType) {
     text: modelName,
     callback_data: `model:${selectedModelType}:${modelName}`
   }));
+
   return {
     reply_markup: {
       inline_keyboard: [modelOptions]
@@ -45,17 +46,12 @@ function createRoleSelection() {
     text: role.name,
     callback_data: `role:${key}`
   }]);
+
   return {
     reply_markup: {
       inline_keyboard: keyboard
     }
   };
-}
-
-// Send logs to the admin
-function logToAdmin(message) {
-  const adminChatId = '7498724465'; // Admin chat ID
-  bot.sendMessage(adminChatId, message);
 }
 
 // Command handlers
@@ -78,10 +74,13 @@ bot.onText(/\/start/, (msg) => {
     '- Contact developer',
     createMainMenu()
   );
-
-  // Log activity to the admin
-  logToAdmin(`User ${msg.from.username || msg.from.id} started the bot.`);
 });
+
+// 30-second mechanism to keep polling active
+setInterval(() => {
+  bot.sendMessage(process.env.ADMIN_CHAT_ID, 'Heartbeat: Bot is active')
+    .catch(() => console.log('Heartbeat 💜 failed but bot is still running.'));
+}, 30000);
 
 // Handle button clicks
 bot.on('callback_query', async (callbackQuery) => {
@@ -95,25 +94,35 @@ bot.on('callback_query', async (callbackQuery) => {
     userPrefs.selectedModel = modelName;
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, `Model set to ${modelName}`);
-    
+
     if (modelType === 'groq') {
       await groqService.setModel(modelName);
     } else if (modelType === 'gemini') {
       await geminiService.setModel(modelName);
     }
 
-    // Log selection to admin
-    logToAdmin(`User ${callbackQuery.from.username || chatId} selected model ${modelName} (${modelType}).`);
+    logToAdmin(chatId, `User selected model: ${modelName}`);
   } else if (data.startsWith('role:')) {
     const role = data.split(':')[1];
     userPrefs.role = role;
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, `Role set to ${roles[role].name}`);
 
-    // Log role change to admin
-    logToAdmin(`User ${callbackQuery.from.username || chatId} selected role ${roles[role].name}.`);
+    logToAdmin(chatId, `User selected role: ${roles[role].name}`);
   }
 });
+
+// Log user activity to admin
+function logToAdmin(chatId, logMessage) {
+  const user = userPreferences.get(chatId) || {};
+  const userLog = 
+    `User Chat ID: ${chatId}\n` +
+    `Selected Model: ${user.model || 'N/A'}\n` +
+    `Selected Role: ${roles[user.role]?.name || 'N/A'}\n` +
+    `Log Message: ${logMessage}`;
+  
+  bot.sendMessage(process.env.ADMIN_CHAT_ID, userLog);
+}
 
 // Handle menu selections
 bot.on('message', async (msg) => {
@@ -121,9 +130,6 @@ bot.on('message', async (msg) => {
   const text = msg.text;
 
   if (!text) return;
-
-  // Log user message to admin
-  logToAdmin(`Message from user ${msg.from.username || chatId}: ${text}`);
 
   switch (text) {
     case '🤖 Select Model':
@@ -153,14 +159,14 @@ bot.on('message', async (msg) => {
 
     case '📞 Contact':
       bot.sendMessage(chatId,
-        'Developer: Sunnyyy\n' +
+        'Developer: sunnnyy\n' +
         'Telegram: @Sunnniiiiiiiiiiii\n\n' +
         'Feel free to reach out for any questions or suggestions!'
       );
       break;
 
     default:
-      if (text.startsWith('/')) return;
+      if (text.startsWith('/')) return; // Ignore other commands
 
       const userPrefs = userPreferences.get(chatId);
       if (!userPrefs) {
@@ -188,14 +194,7 @@ bot.on('message', async (msg) => {
 
         bot.sendMessage(chatId, response);
 
-        // Log response to admin
-        logToAdmin(
-          `User ${msg.from.username || chatId}:\n` +
-          `Model: ${models[userPrefs.model].name} (${userPrefs.selectedModel})\n` +
-          `Role: ${roles[userPrefs.role].name}\n` +
-          `Message: ${text}\n` +
-          `Response: ${response}`
-        );
+        logToAdmin(chatId, `User message: ${text}\nBot response: ${response}`);
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
@@ -203,10 +202,17 @@ bot.on('message', async (msg) => {
   }
 });
 
-// 30-second keep-alive mechanism
-setInterval(() => {
-  logToAdmin('Bot keep-alive check at ' + new Date().toISOString());
-}, 30000);
+// Handle model type selection
+bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const data = callbackQuery.data;
+
+  if (data.startsWith('selectModelType:')) {
+    const modelType = data.split(':')[1];
+    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
+    bot.answerCallbackQuery(callbackQuery.id);
+  }
+});
 
 // Start the bot
 console.log('Bot is running...');
