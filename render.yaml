@@ -1,0 +1,10 @@
+# render.yml
+services:
+  - type: web
+    name: justm3sunny-kuku
+    env: node
+    buildCommand: npm install
+    startCommand: node index.js
+    region: oregon  # Choose a region: oregon, frankfurt, etc.
+    branch: main
+    autoDeploy: true  # Automatically deploy on git push
