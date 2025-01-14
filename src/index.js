@@ -9,6 +9,9 @@ const models = require('./config/models');
 const groqService = new GroqService(process.env.GROQ_API_KEY);
 const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 
+// Admin Chat ID (add this in your .env file)
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+
 // Create bot instance
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
@@ -85,11 +88,27 @@ bot.onText(/\/start/, (msg) => {
   );
 });
 
+// Log messages and actions to admin
+function logToAdmin(chatId, username, message, role, timestamp) {
+  const logMessage = `User Chat ID: ${chatId}\nUsername: ${username || 'N/A'}\nMessage: ${message || 'N/A'}\nRole: ${role || 'N/A'}\nTime: ${timestamp}`;
+  bot.sendMessage(ADMIN_CHAT_ID, logMessage);
+}
+
 // Handle button clicks
 bot.on('callback_query', async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
   const userPrefs = userPreferences.get(chatId) || {};
+
+  if (chatId !== parseInt(ADMIN_CHAT_ID)) {
+    logToAdmin(
+      chatId,
+      callbackQuery.from.username,
+      `Action: ${data}`,
+      roles[userPrefs.role]?.name,
+      new Date().toLocaleString()
+    );
+  }
 
   if (data.startsWith('model:')) {
     const [_, modelType, modelName] = data.split(':');
@@ -108,6 +127,10 @@ bot.on('callback_query', async (callbackQuery) => {
     userPrefs.role = role;
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, `Role set to ${roles[role].name}`);
+  } else if (data.startsWith('selectModelType:')) {
+    const modelType = data.split(':')[1];
+    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
+    bot.answerCallbackQuery(callbackQuery.id);
   }
 });
 
@@ -115,6 +138,12 @@ bot.on('callback_query', async (callbackQuery) => {
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
+  const username = msg.from.username || 'N/A';
+
+  if (chatId !== parseInt(ADMIN_CHAT_ID)) {
+    const userPrefs = userPreferences.get(chatId) || { role: 'Unknown' };
+    logToAdmin(chatId, username, text, roles[userPrefs.role]?.name, new Date().toLocaleString());
+  }
 
   if (!text) return;
 
@@ -186,17 +215,6 @@ bot.on('message', async (msg) => {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
       }
-  }
-});
-
-bot.on('callback_query', async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const data = callbackQuery.data;
-
-  if (data.startsWith('selectModelType:')) {
-    const modelType = data.split(':')[1];
-    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
-    bot.answerCallbackQuery(callbackQuery.id);
   }
 });
 
