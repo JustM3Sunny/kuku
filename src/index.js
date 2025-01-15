@@ -120,6 +120,16 @@ bot.on('callback_query', async (callbackQuery) => {
         bot.answerCallbackQuery(callbackQuery.id, 'An error occurred. Please try again.');
     }
 });
+if (process.env.ADMIN_CHAT_ID) {
+  const adminMsg = 
+    `New message from user ${msg.from.username || msg.from.id}:\n` +
+    `Model: ${models[userPrefs.model].name} - ${userPrefs.selectedModel}\n` +
+    `Role: ${roles[userPrefs.role].name}\n` +
+    `Message: ${text}\n` +
+    `Response: ${response}`;
+  
+  bot.sendMessage(process.env.ADMIN_CHAT_ID, adminMsg);
+}
 
 // Handle regular messages
 bot.on('message', async (msg) => {
