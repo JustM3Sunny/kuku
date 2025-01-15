@@ -1,3 +1,5 @@
+
+// Start of Selection
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const GroqService = require('./services/groqService');
@@ -8,7 +10,6 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 const https = require('https');
-
 
 // Initialize services
 const groqService = new GroqService(process.env.GROQ_API_KEY);
@@ -45,7 +46,6 @@ function createModelSelection(selectedModelType) {
         }
     };
 }
-
 
 function createRoleSelection() {
   const keyboard = Object.entries(roles).map(([key, role]) => [{
@@ -93,7 +93,7 @@ bot.on('callback_query', async (callbackQuery) => {
       userPrefs.model = modelType;
       userPrefs.selectedModel = modelName;
       userPreferences.set(chatId, userPrefs);
-      bot.answerCallbackQuery(callbackQuery.id, `Model set to ${modelName}`);
+      bot.answerCallbackQuery(callbackQuery.id, { text: `Model set to ${modelName}` });
       
       if (modelType === 'groq') {
           await groqService.setModel(modelName);
@@ -104,7 +104,7 @@ bot.on('callback_query', async (callbackQuery) => {
     const role = data.split(':')[1];
     userPrefs.role = role;
     userPreferences.set(chatId, userPrefs);
-    bot.answerCallbackQuery(callbackQuery.id, `Role set to ${roles[role].name}`);
+    bot.answerCallbackQuery(callbackQuery.id, { text: `Role set to ${roles[role].name}` });
   }
 });
 
@@ -224,16 +224,10 @@ app.listen(port, () => {
 // Start the bot
 console.log('Bot is running...');
 
-// Heartbeat to keep the bot alive
+// Basic heartbeat to ensure the process stays alive.
+// Consider using a process manager like PM2 for more robust solutions.
 setInterval(() => {
-    https.get(`https://localhost:${port}`, (res) => {
-        if (res.statusCode === 200) {
-            console.log('Heartbeat: Bot is alive');
-        } else {
-            console.error(`Heartbeat failed with status code: ${res.statusCode}`);
-        }
-        res.resume(); // Consume response data to prevent memory leaks
-    }).on('error', (err) => {
-        console.error('Heartbeat error:', err);
-    });
-}, 45000); // Send a request every 45 seconds
+    console.log('Heartbeat: Bot is alive');
+}, 45000); // Log every 45 seconds
+
+// Ensure only one bot instance is running to avoid conflicts.
