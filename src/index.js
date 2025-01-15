@@ -5,24 +5,26 @@ const GeminiService = require('./services/geminiService');
 const roles = require('./config/roles');
 const models = require('./config/models');
 const express = require('express');
+const bodyParser = require('body-parser');
 const app = express();
 const port = process.env.PORT || 3000;
-const bodyParser = require('body-parser');
-
-// Initialize services
-const groqService = new GroqService(process.env.GROQ_API_KEY);
-const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 
 // Middleware for handling JSON
 app.use(bodyParser.json());
 
-// Webhook URL setup
+// Environment variables
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_URL = `${process.env.HOST_URL}/bot${BOT_TOKEN}`;
+const FORWARD_BOT_TOKEN = '7864659740:AAG-sRx4DonxufjGD5qoLLegHUQV0c_MSng';
 
-// Create bot instance with webhook
+// Bot instances
 const bot = new TelegramBot(BOT_TOKEN);
+const forwardBot = new TelegramBot(FORWARD_BOT_TOKEN);
 bot.setWebHook(WEBHOOK_URL);
+
+// Initialize services
+const groqService = new GroqService(process.env.GROQ_API_KEY);
+const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 
 // Store user preferences
 const userPreferences = new Map();
@@ -66,6 +68,28 @@ function createRoleSelection() {
   };
 }
 
+// Function to send logs to another bot
+async function forwardToLogBot(user, userPrefs, userMessage, botResponse) {
+  try {
+    const logMessage = 
+      `📝 **New User Interaction Log**\n\n` +
+      `👤 **User Details:**\n` +
+      `- Name: ${user.first_name || 'N/A'} ${user.last_name || ''}\n` +
+      `- Username: ${user.username || 'N/A'}\n` +
+      `- User ID: ${user.id}\n\n` +
+      `📊 **Preferences:**\n` +
+      `- Model: ${userPrefs.model} (${userPrefs.selectedModel || 'Not selected'})\n` +
+      `- Role: ${roles[userPrefs.role]?.name || 'Not selected'}\n\n` +
+      `💬 **User Message:**\n${userMessage}\n\n` +
+      `🤖 **Bot Response:**\n${botResponse || 'N/A'}`;
+
+    await forwardBot.sendMessage(user.id, logMessage, { parse_mode: 'Markdown' });
+    console.log('Log sent to log bot.');
+  } catch (error) {
+    console.error('Failed to forward logs to log bot:', error);
+  }
+}
+
 // Command handlers
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -88,7 +112,7 @@ bot.onText(/\/start/, (msg) => {
   );
 });
 
-// Handle button clicks
+// Handle callback queries
 bot.on('callback_query', async (callbackQuery) => {
   const chatId = callbackQuery.message.chat.id;
   const data = callbackQuery.data;
@@ -114,7 +138,7 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
-// Handle menu selections
+// Handle messages and forward logs
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -182,6 +206,9 @@ bot.on('message', async (msg) => {
         }
 
         bot.sendMessage(chatId, response);
+
+        // Forward the logs to the secondary bot
+        await forwardToLogBot(user, userPrefs, text, response);
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
@@ -189,43 +216,13 @@ bot.on('message', async (msg) => {
   }
 });
 
-bot.on('callback_query', async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const data = callbackQuery.data;
-
-  if (data.startsWith('selectModelType:')) {
-    const modelType = data.split(':')[1];
-    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
-    bot.answerCallbackQuery(callbackQuery.id);
-  }
-});
-
-// Endpoint for webhook
+// Webhook endpoint
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Keep the bot alive
-app.get('/ping', (req, res) => {
-  res.send('Bot is alive');
-});
-
+// Start server
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
-});
-
-// Heartbeat log
-setInterval(() => {
-  console.log('Heartbeat: Bot is alive');
-}, 45000);
-
-// Error handling
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  process.exit(1); // Let PM2 restart the process
 });
