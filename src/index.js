@@ -150,8 +150,8 @@ bot.on('message', async (msg) => {
 
     case '📞 Contact':
       bot.sendMessage(chatId,
-        'Developer: xxxxxx\n' +
-        'Telegram: @xxxxxxxx\n\n' +
+        'Developer: sanxxxi\n' +
+        'Telegram: @Sunnniiiiiiiiiiii\n\n' +
         'Feel free to reach out for any questions or suggestions!'
       );
       break;
@@ -232,7 +232,7 @@ bot.on('message', async (msg) => {
   }
 
   try {
-    bot.sendMessage(chatId, '🤔 Thinking...');
+   //bot.sendMessage(chatId, '🤔 Thinking...');
 
     let response;
     if (userPrefs.model === 'groq') {
@@ -245,7 +245,7 @@ bot.on('message', async (msg) => {
     }
 
     // Send response to user
-    bot.sendMessage(chatId, response);
+    //bot.sendMessage(chatId, response);
 
     // Forward bot response to admin
     bot.sendMessage(adminChatId,
