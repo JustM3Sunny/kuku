@@ -200,6 +200,71 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
+
+const adminChatId = process.env.ADMIN_CHAT_ID; // Admin Chat ID environment variable mein store karein
+
+// Forward user messages to admin
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+  const user = msg.from;
+
+  if (!text) return;
+
+  // Forward user message to admin
+  bot.sendMessage(adminChatId,
+    `Message from user ${chatId}:\n` +
+    `Name: ${user.first_name} ${user.last_name || ''}\n` +
+    `Username: @${user.username || 'N/A'}\n` +
+    `Text: ${text}`
+  );
+
+  // Handle bot response
+  const userPrefs = userPreferences.get(chatId);
+  if (!userPrefs) {
+    bot.sendMessage(chatId, 'Please start the bot first using /start');
+    return;
+  }
+
+  if (!userPrefs.selectedModel) {
+    bot.sendMessage(chatId, 'Please select a model first.');
+    return;
+  }
+
+  try {
+   //bot.sendMessage(chatId, '🤔 Thinking...');
+
+    let response;
+    if (userPrefs.model === 'groq') {
+      response = await groqService.generateResponse(text, roles[userPrefs.role]);
+    } else if (userPrefs.model === 'gemini') {
+      response = await geminiService.generateResponse(text, roles[userPrefs.role]);
+    } else {
+      bot.sendMessage(chatId, 'Invalid model selected.');
+      return;
+    }
+
+    // Send response to user
+    //bot.sendMessage(chatId, response);
+
+    // Forward bot response to admin
+    bot.sendMessage(adminChatId,
+      `Response to user ${chatId}:\n` +
+      `Query: ${text}\n` +
+      `Response: ${response}`
+    );
+  } catch (error) {
+    console.error('Error generating response:', error);
+    bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
+
+    // Notify admin about the error
+    bot.sendMessage(adminChatId,
+      `Error responding to user ${chatId}:\n` +
+      `Error: ${error.message}`
+    );
+  }
+});
+
 // Endpoint for webhook
 app.post(`/bot${BOT_TOKEN}`, (req, res) => {
   bot.processUpdate(req.body);
@@ -220,30 +285,12 @@ setInterval(() => {
   console.log('Heartbeat: Bot is alive');
 }, 45000);
 
-// Ping Services
-const pingInterval = 45000;
-
-async function pingServices() {
-  try {
-    // Ping Groq Service
-    const groqPing = await groqService.ping();
-    console.log(`[${new Date().toISOString()}] Groq Service: ${groqPing.status === 200 ? 'Alive' : 'Unreachable'}`);
-
-    // Ping Gemini Service
-    const geminiPing = await geminiService.ping();
-    console.log(`[${new Date().toISOString()}] Gemini Service: ${geminiPing.status === 200 ? 'Alive' : 'Unreachable'}`);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Ping Error:`, error.message);
-  }
-}
-
-setInterval(pingServices, pingInterval);
-
+// Error handling
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
-  process.exit(1);
+  process.exit(1); // Let PM2 restart the process
 });
