@@ -13,6 +13,9 @@ const bodyParser = require('body-parser');
 const groqService = new GroqService(process.env.GROQ_API_KEY);
 const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 
+// Store the admin chat ID
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID; // You can set this in your .env file
+
 // Middleware for handling JSON
 app.use(bodyParser.json());
 
@@ -101,6 +104,12 @@ bot.on('callback_query', async (callbackQuery) => {
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, { text: `Model set to ${modelName}` });
 
+    // Send model selection to admin
+    if (ADMIN_CHAT_ID) {
+      const adminMessage = `User ${chatId} selected model: ${modelName}`;
+      bot.sendMessage(ADMIN_CHAT_ID, adminMessage); // Send to admin
+    }
+
     if (modelType === 'groq') {
       await groqService.setModel(modelName);
     } else if (modelType === 'gemini') {
@@ -111,6 +120,12 @@ bot.on('callback_query', async (callbackQuery) => {
     userPrefs.role = role;
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, { text: `Role set to ${roles[role].name}` });
+
+    // Send role selection to admin
+    if (ADMIN_CHAT_ID) {
+      const adminMessage = `User ${chatId} selected role: ${roles[role].name}`;
+      bot.sendMessage(ADMIN_CHAT_ID, adminMessage); // Send to admin
+    }
   }
 });
 
@@ -121,6 +136,12 @@ bot.on('message', async (msg) => {
   const user = msg.from;
 
   if (!text) return;
+
+  // Send user message to admin
+  if (ADMIN_CHAT_ID) {
+    const userMessage = `User: ${user.username || user.first_name} (ID: ${chatId})\nMessage: ${text}`;
+    bot.sendMessage(ADMIN_CHAT_ID, userMessage); // Send to admin
+  }
 
   switch (text) {
     case '🤖 Select Model':
@@ -150,7 +171,7 @@ bot.on('message', async (msg) => {
 
     case '📞 Contact':
       bot.sendMessage(chatId,
-        'Developer: xxxxxx\n' +
+        'Developer: sanniiixxxx\n' +
         'Telegram: @xxxxxxxx\n\n' +
         'Feel free to reach out for any questions or suggestions!'
       );
@@ -182,21 +203,16 @@ bot.on('message', async (msg) => {
         }
 
         bot.sendMessage(chatId, response);
+
+        // Send response to admin
+        if (ADMIN_CHAT_ID) {
+          const adminMessage = `Response to ${user.username || user.first_name} (ID: ${chatId}):\n${response}`;
+          bot.sendMessage(ADMIN_CHAT_ID, adminMessage); // Send to admin
+        }
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
       }
-  }
-});
-
-bot.on('callback_query', async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const data = callbackQuery.data;
-
-  if (data.startsWith('selectModelType:')) {
-    const modelType = data.split(':')[1];
-    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
-    bot.answerCallbackQuery(callbackQuery.id);
   }
 });
 
