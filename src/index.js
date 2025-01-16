@@ -5,13 +5,9 @@ const GeminiService = require('./services/geminiService');
 const roles = require('./config/roles');
 const models = require('./config/models');
 const express = require('express');
-const bodyParser = require('body-parser');
-
 const app = express();
 const port = process.env.PORT || 3000;
-
-// Admin chat ID from .env
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID;
+const bodyParser = require('body-parser');
 
 // Initialize services
 const groqService = new GroqService(process.env.GROQ_API_KEY);
@@ -20,16 +16,18 @@ const geminiService = new GeminiService(process.env.GEMINI_API_KEY);
 // Middleware for handling JSON
 app.use(bodyParser.json());
 
-// Bot setup
+// Webhook URL setup
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const WEBHOOK_URL = `${process.env.HOST_URL}/bot${BOT_TOKEN}`;
-const bot = new TelegramBot(BOT_TOKEN, { webHook: true });
+
+// Create bot instance with webhook
+const bot = new TelegramBot(BOT_TOKEN);
 bot.setWebHook(WEBHOOK_URL);
 
 // Store user preferences
 const userPreferences = new Map();
 
-// Helper functions
+// Helper function to create keyboard markup
 function createMainMenu() {
   return {
     reply_markup: {
@@ -68,11 +66,9 @@ function createRoleSelection() {
   };
 }
 
-// Handle /start command
+// Command handlers
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-
-  // Default preferences for new users
   const defaultPrefs = {
     model: 'groq',
     selectedModel: null,
@@ -80,7 +76,6 @@ bot.onText(/\/start/, (msg) => {
   };
   userPreferences.set(chatId, defaultPrefs);
 
-  // Send welcome message
   bot.sendMessage(chatId,
     'Welcome to the AI Assistant Bot! 🤖\n\n' +
     'I can help you with various tasks in different roles using multiple AI models.\n\n' +
@@ -91,11 +86,6 @@ bot.onText(/\/start/, (msg) => {
     '- Contact developer',
     createMainMenu()
   );
-
-  // Inform admin
-  if (ADMIN_CHAT_ID) {
-    bot.sendMessage(ADMIN_CHAT_ID, `New user started: ${msg.from.username || msg.from.id}`);
-  }
 });
 
 // Handle button clicks
@@ -116,28 +106,19 @@ bot.on('callback_query', async (callbackQuery) => {
     } else if (modelType === 'gemini') {
       await geminiService.setModel(modelName);
     }
-
-    // Inform admin
-    if (ADMIN_CHAT_ID) {
-      bot.sendMessage(ADMIN_CHAT_ID, `User ${chatId} selected model: ${modelName}`);
-    }
   } else if (data.startsWith('role:')) {
     const role = data.split(':')[1];
     userPrefs.role = role;
     userPreferences.set(chatId, userPrefs);
     bot.answerCallbackQuery(callbackQuery.id, { text: `Role set to ${roles[role].name}` });
-
-    // Inform admin
-    if (ADMIN_CHAT_ID) {
-      bot.sendMessage(ADMIN_CHAT_ID, `User ${chatId} selected role: ${roles[role].name}`);
-    }
   }
 });
 
-// Handle text messages
+// Handle menu selections
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
+  const user = msg.from;
 
   if (!text) return;
 
@@ -162,14 +143,14 @@ bot.on('message', async (msg) => {
         'How to use this bot:\n\n' +
         '1. Select an AI model (Groq or Gemini)\n' +
         '2. Choose a role for the AI\n' +
-        '3. Send your message and get a response.\n\n' +
+        '3. Simply send your message and get a response\n\n' +
         'You can change the model or role anytime using the menu buttons.'
       );
       break;
 
     case '📞 Contact':
       bot.sendMessage(chatId,
-        'Developer: sxxxxxx\n' +
+        'Developer: xxxxxx\n' +
         'Telegram: @xxxxxxxx\n\n' +
         'Feel free to reach out for any questions or suggestions!'
       );
@@ -177,8 +158,13 @@ bot.on('message', async (msg) => {
 
     default:
       const userPrefs = userPreferences.get(chatId);
-      if (!userPrefs || !userPrefs.selectedModel) {
-        bot.sendMessage(chatId, 'Please select a model and role first using the menu.');
+      if (!userPrefs) {
+        bot.sendMessage(chatId, 'Please start the bot first using /start');
+        return;
+      }
+
+      if (!userPrefs.selectedModel) {
+        bot.sendMessage(chatId, 'Please select a model first.');
         return;
       }
 
@@ -196,17 +182,86 @@ bot.on('message', async (msg) => {
         }
 
         bot.sendMessage(chatId, response);
-
-        // Forward to admin
-        if (ADMIN_CHAT_ID) {
-          bot.sendMessage(ADMIN_CHAT_ID,
-            `User ${chatId} asked: ${text}\n\nResponse: ${response}`
-          );
-        }
       } catch (error) {
         console.error('Error generating response:', error);
         bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
       }
+  }
+});
+
+bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const data = callbackQuery.data;
+
+  if (data.startsWith('selectModelType:')) {
+    const modelType = data.split(':')[1];
+    bot.sendMessage(chatId, `Choose a ${models[modelType].name} model:`, createModelSelection(modelType));
+    bot.answerCallbackQuery(callbackQuery.id);
+  }
+});
+
+
+const adminChatId = process.env.ADMIN_CHAT_ID; // Admin Chat ID environment variable mein store karein
+
+// Forward user messages to admin
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+  const user = msg.from;
+
+  if (!text) return;
+
+  // Forward user message to admin
+  bot.sendMessage(adminChatId,
+    `Message from user ${chatId}:\n` +
+    `Name: ${user.first_name} ${user.last_name || ''}\n` +
+    `Username: @${user.username || 'N/A'}\n` +
+    `Text: ${text}`
+  );
+
+  // Handle bot response
+  const userPrefs = userPreferences.get(chatId);
+  if (!userPrefs) {
+    bot.sendMessage(chatId, 'Please start the bot first using /start');
+    return;
+  }
+
+  if (!userPrefs.selectedModel) {
+    bot.sendMessage(chatId, 'Please select a model first.');
+    return;
+  }
+
+  try {
+    bot.sendMessage(chatId, '🤔 Thinking...');
+
+    let response;
+    if (userPrefs.model === 'groq') {
+      response = await groqService.generateResponse(text, roles[userPrefs.role]);
+    } else if (userPrefs.model === 'gemini') {
+      response = await geminiService.generateResponse(text, roles[userPrefs.role]);
+    } else {
+      bot.sendMessage(chatId, 'Invalid model selected.');
+      return;
+    }
+
+    // Send response to user
+    bot.sendMessage(chatId, response);
+
+    // Forward bot response to admin
+    bot.sendMessage(adminChatId,
+      `Response to user ${chatId}:\n` +
+      `Query: ${text}\n` +
+      `Response: ${response}`
+    );
+  } catch (error) {
+    console.error('Error generating response:', error);
+    bot.sendMessage(chatId, 'Sorry, I encountered an error. Please try again later.');
+
+    // Notify admin about the error
+    bot.sendMessage(adminChatId,
+      `Error responding to user ${chatId}:\n` +
+      `Error: ${error.message}`
+    );
   }
 });
 
@@ -216,17 +271,26 @@ app.post(`/bot${BOT_TOKEN}`, (req, res) => {
   res.sendStatus(200);
 });
 
-// Keep bot alive
+// Keep the bot alive
+app.get('/ping', (req, res) => {
+  res.send('Bot is alive');
+});
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
 
+// Heartbeat log
+setInterval(() => {
+  console.log('Heartbeat: Bot is alive');
+}, 45000);
+
 // Error handling
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
-  process.exit(1);
-});
+  process.exit(1); // Let PM2 restart the process
+}); 
